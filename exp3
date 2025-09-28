@@ -1,0 +1,93 @@
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+
+// ----- In-memory seats -----
+/*
+Seat structure:
+{
+  id: 1,
+  status: 'available' | 'locked' | 'booked',
+  lockedBy: null | userId,
+  lockTimer: null | Timeout
+}
+*/
+
+const TOTAL_SEATS = 10;
+let seats = [];
+for (let i = 1; i <= TOTAL_SEATS; i++) {
+  seats.push({ id: i, status: 'available', lockedBy: null, lockTimer: null });
+}
+
+// ----- Helper Functions -----
+
+// Lock a seat for a user with expiration
+function lockSeat(seat, userId) {
+  if (seat.status !== 'available') return false;
+
+  seat.status = 'locked';
+  seat.lockedBy = userId;
+
+  // Auto-release lock after 1 minute
+  seat.lockTimer = setTimeout(() => {
+    console.log(`Lock expired for seat ${seat.id}`);
+    seat.status = 'available';
+    seat.lockedBy = null;
+    seat.lockTimer = null;
+  }, 60 * 1000);
+
+  return true;
+}
+
+// Confirm a seat booking
+function confirmSeat(seat, userId) {
+  if (seat.status !== 'locked' || seat.lockedBy !== userId) return false;
+
+  seat.status = 'booked';
+  seat.lockedBy = null;
+  clearTimeout(seat.lockTimer);
+  seat.lockTimer = null;
+
+  return true;
+}
+
+// ----- API Endpoints -----
+
+// GET /seats - view all seats
+app.get('/seats', (req, res) => {
+  res.json(seats.map(s => ({ id: s.id, status: s.status, lockedBy: s.lockedBy })));
+});
+
+// POST /seats/lock - lock a seat
+app.post('/seats/lock', (req, res) => {
+  const { seatId, userId } = req.body;
+  const seat = seats.find(s => s.id === seatId);
+
+  if (!seat) return res.status(404).json({ message: 'Seat not found' });
+  if (seat.status === 'locked') return res.status(400).json({ message: `Seat ${seatId} is already locked by another user` });
+  if (seat.status === 'booked') return res.status(400).json({ message: `Seat ${seatId} is already booked` });
+
+  lockSeat(seat, userId);
+  res.json({ message: `Seat ${seatId} locked successfully for user ${userId}`, seat });
+});
+
+// POST /seats/confirm - confirm a locked seat
+app.post('/seats/confirm', (req, res) => {
+  const { seatId, userId } = req.body;
+  const seat = seats.find(s => s.id === seatId);
+
+  if (!seat) return res.status(404).json({ message: 'Seat not found' });
+  if (seat.status !== 'locked' || seat.lockedBy !== userId) {
+    return res.status(400).json({ message: `Seat ${seatId} cannot be confirmed by user ${userId}` });
+  }
+
+  confirmSeat(seat, userId);
+  res.json({ message: `Seat ${seatId} booked successfully by user ${userId}`, seat });
+});
+
+// ----- Start Server -----
+app.listen(PORT, () => {
+  console.log(`Ticket Booking API running at http://localhost:${PORT}`);
+});
